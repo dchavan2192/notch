@@ -11,6 +11,7 @@ Everything runs locally. There is no account, no server and no tracking, and it'
 | **Focus timer** | Pomodoro cycles (focus, short break, long break after 4 rounds), skip and auto-start, plus daily and weekly focus stats and a day streak |
 | **Assignments** | Quick-add list with due dates, sorted by urgency, with overdue highlighting |
 | **Schedule** | Today's and tomorrow's events from the macOS Calendar app (iCloud, Google and others you've added) |
+| **Now playing** | Spotify and Apple Music: album art, controls, seek bar, and live sound bars that move with your audio (uses the system audio permission; audio is analyzed in memory and never stored) |
 | **File shelf** | Drag files onto the notch to hold them, then drag them back out anywhere |
 | **Clipboard** | History of your last 20 copied text items (password-manager copies are ignored) |
 | **Notes** | A scratchpad that autosaves |
@@ -21,7 +22,7 @@ Works on Macs without a notch too, using a virtual pill at the top of the screen
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later
+- macOS 14.2 (Sonoma) or later
 - Xcode or the Command Line Tools: `xcode-select --install`
 
 ## Install

@@ -2,29 +2,33 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Notch</string>
-    <key>CFBundleDisplayName</key>
-    <string>Notch</string>
-    <key>CFBundleIdentifier</key>
-    <string>local.notch.app</string>
-    <key>CFBundleExecutable</key>
-    <string>Notch</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.1</string>
-    <key>CFBundleVersion</key>
-    <string>2</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Notch shows your upcoming classes and events.</string>
-    <key>NSCalendarsUsageDescription</key>
-    <string>Notch shows your upcoming classes and events.</string>
+	<key>CFBundleDisplayName</key>
+	<string>Notch</string>
+	<key>CFBundleExecutable</key>
+	<string>Notch</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.notch.app</string>
+	<key>CFBundleName</key>
+	<string>Notch</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.2</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.2</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Notch reads what is playing in Spotify and Apple Music and lets you control playback.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Notch listens to system audio so the sound bars can move in sync with your music. Audio is analyzed live and never recorded or stored.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Notch shows your upcoming classes and events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Notch shows your upcoming classes and events.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 </dict>
 </plist>

@@ -10,7 +10,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
 swiftc -O -swift-version 5 \
-  -target "$(uname -m)-apple-macosx14.0" \
+  -target "$(uname -m)-apple-macosx14.2" \
   main.swift -o "$APP/Contents/MacOS/Notch"
 
 cp Info.plist "$APP/Contents/Info.plist"
