@@ -13,6 +13,7 @@ Everything runs locally. There is no account, no server and no tracking, and it'
 | **Schedule** | Today's and tomorrow's events from the macOS Calendar app (iCloud, Google and others you've added) |
 | **Now playing** | Spotify and Apple Music: album art, controls, seek bar, and live sound bars that move with your audio (uses the system audio permission; audio is analyzed in memory and never stored) |
 | **File shelf** | Drag files onto the notch to hold them, then drag them back out anywhere |
+| **File tools** | On the shelf: convert files to PDF (docx, doc, rtf, odt, html, txt, images; pptx/xlsx if LibreOffice is installed) and merge PDFs. Results are saved next to the originals |
 | **Clipboard** | History of your last 20 copied text items (password-manager copies are ignored) |
 | **Notes** | A scratchpad that autosaves |
 

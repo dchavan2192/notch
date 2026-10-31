@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import EventKit
+import PDFKit
 import CoreServices
 import CoreAudio
 import AudioToolbox
@@ -276,6 +277,10 @@ final class NotchModel: ObservableObject {
     @Published var shelf: [URL] = [] {
         didSet { UserDefaults.standard.set(shelf.map { $0.path }, forKey: "shelf") }
     }
+
+    // File tools
+    @Published var busy = false
+    @Published var status: String?
 
     // Clipboard
     @Published var clips: [String] = []
@@ -636,6 +641,54 @@ final class NotchModel: ObservableObject {
 
     func removeFile(_ url: URL) {
         shelf.removeAll { $0 == url }
+    }
+
+    // MARK: File tools (convert / merge)
+
+    func flash(_ text: String) {
+        status = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            if self?.status == text { self?.status = nil }
+        }
+    }
+
+    func moveFile(_ url: URL, by delta: Int) {
+        guard let i = shelf.firstIndex(of: url) else { return }
+        let j = i + delta
+        guard j >= 0, j < shelf.count else { return }
+        shelf.swapAt(i, j)
+    }
+
+    func convertToPDF(_ urls: [URL]) {
+        guard !busy, !urls.isEmpty else { return }
+        busy = true
+        status = nil
+        FileConverter.convertAll(urls) { [weak self] outputs, failures in
+            guard let self = self else { return }
+            self.busy = false
+            for o in outputs { self.addFile(o) }
+            if failures.isEmpty {
+                self.flash(outputs.count == 1 ? "Saved \(outputs[0].lastPathComponent)"
+                                              : "Saved \(outputs.count) PDFs")
+            } else if outputs.isEmpty {
+                self.flash("Failed - \(failures[0])")
+            } else {
+                self.flash("\(outputs.count) done - \(failures[0])")
+            }
+        }
+    }
+
+    func mergePDFs() {
+        let pdfs = shelf.filter { FileConverter.isPDF($0) }
+        guard !busy, pdfs.count >= 2 else { return }
+        let out = FileConverter.uniqueURL(base: "Merged", in: FileConverter.outputDir(for: pdfs[0]))
+        switch FileConverter.merge(pdfs, to: out) {
+        case .success(let pages):
+            addFile(out)
+            flash("Merged \(pdfs.count) PDFs (\(pages) pages) into \(out.lastPathComponent)")
+        case .failure(let e):
+            flash("Couldn't merge - \(e.message)")
+        }
     }
 
     // MARK: Clipboard
@@ -1869,6 +1922,11 @@ struct ShelfTab: View {
     @ObservedObject var m: NotchModel
 
     var body: some View {
+        let convertible = m.shelf.filter { FileConverter.canConvert($0) }
+        let pdfCount = m.shelf.filter { FileConverter.isPDF($0) }.count
+        let canConvertNow = !convertible.isEmpty && !m.busy
+        let canMergeNow = pdfCount >= 2 && !m.busy
+
         ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(m.isDropTargeted ? 0.14 : 0.05))
@@ -1882,18 +1940,52 @@ struct ShelfTab: View {
                 VStack(spacing: 6) {
                     Image(systemName: "tray.and.arrow.down.fill")
                         .font(.system(size: 22))
-                    Text("Drop files here to hold them")
+                    Text("Drop files here to hold, convert or merge them")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundStyle(Color.white.opacity(0.5))
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(m.shelf, id: \.self) { url in
-                            ShelfItem(url: url) { m.removeFile(url) }
+                VStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(m.shelf, id: \.self) { url in
+                                ShelfItem(url: url, m: m)
+                            }
+                        }
+                        .padding(10)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button { m.convertToPDF(convertible) } label: {
+                            Label("Convert to PDF", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .buttonStyle(PillStyle())
+                        .disabled(!canConvertNow)
+                        .opacity(canConvertNow ? 1 : 0.4)
+
+                        Button { m.mergePDFs() } label: {
+                            Label("Merge PDFs", systemImage: "rectangle.stack")
+                        }
+                        .buttonStyle(PillStyle())
+                        .disabled(!canMergeNow)
+                        .opacity(canMergeNow ? 1 : 0.4)
+
+                        Spacer(minLength: 8)
+
+                        if m.busy {
+                            Text("Working...")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.orange)
+                        } else if let s = m.status {
+                            Text(s)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.white.opacity(0.7))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
-                    .padding(10)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
                 }
             }
         }
@@ -1911,14 +2003,14 @@ struct ShelfTab: View {
 
 struct ShelfItem: View {
     let url: URL
-    let onRemove: () -> Void
+    let m: NotchModel
     @State private var hover = false
 
     var body: some View {
         VStack(spacing: 4) {
             Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                 .resizable()
-                .frame(width: 50, height: 50)
+                .frame(width: 46, height: 46)
             Text(url.lastPathComponent)
                 .font(.system(size: 10))
                 .lineLimit(2)
@@ -1930,7 +2022,7 @@ struct ShelfItem: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(hover ? 0.12 : 0)))
         .overlay(alignment: .topTrailing) {
             if hover {
-                Button(action: onRemove) {
+                Button { m.removeFile(url) } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Color.white.opacity(0.85))
                 }
@@ -1943,8 +2035,263 @@ struct ShelfItem: View {
         .contextMenu {
             Button("Open") { NSWorkspace.shared.open(url) }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            Button("Remove from Shelf", action: onRemove)
+            if FileConverter.canConvert(url) {
+                Button("Convert to PDF") { m.convertToPDF([url]) }
+            }
+            Button("Move Earlier") { m.moveFile(url, by: -1) }
+            Button("Move Later") { m.moveFile(url, by: 1) }
+            Button("Remove from Shelf") { m.removeFile(url) }
         }
+    }
+}
+
+// MARK: - File converter + PDF merger
+
+struct ConvertError: Error {
+    let message: String
+}
+
+enum FileConverter {
+    static let imageExts: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "tif", "tiff", "gif", "bmp", "webp"]
+    static let textExts: Set<String> = ["txt", "md", "markdown", "log", "csv", "json", "xml", "yml", "yaml"]
+    static let richExts: Set<String> = ["docx", "doc", "rtf", "rtfd", "odt", "html", "htm"]
+    static let officeOnlyExts: Set<String> = ["pptx", "ppt", "xlsx", "xls", "odp", "ods"]
+
+    static func isPDF(_ url: URL) -> Bool { url.pathExtension.lowercased() == "pdf" }
+
+    static func canConvert(_ url: URL) -> Bool {
+        let e = url.pathExtension.lowercased()
+        return imageExts.contains(e) || textExts.contains(e) || richExts.contains(e) || officeOnlyExts.contains(e)
+    }
+
+    static var sofficePath: String? {
+        let candidates = [
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+            "/opt/homebrew/bin/soffice",
+            "/usr/local/bin/soffice"
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Saves next to the original; falls back to Downloads if that folder is read-only.
+    static func outputDir(for url: URL) -> URL {
+        let dir = url.deletingLastPathComponent()
+        if FileManager.default.isWritableFile(atPath: dir.path) { return dir }
+        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+    }
+
+    static func uniqueURL(base: String, in dir: URL) -> URL {
+        var candidate = dir.appendingPathComponent(base + ".pdf")
+        var n = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = dir.appendingPathComponent("\(base) \(n).pdf")
+            n += 1
+        }
+        return candidate
+    }
+
+    // MARK: Convert
+
+    static func convertAll(_ urls: [URL],
+                           done: @escaping (_ outputs: [URL], _ failures: [String]) -> Void) {
+        var outputs: [URL] = []
+        var failures: [String] = []
+        func step(_ i: Int) {
+            if i >= urls.count {
+                done(outputs, failures)
+                return
+            }
+            let u = urls[i]
+            convert(u) { result in
+                switch result {
+                case .success(let out): outputs.append(out)
+                case .failure(let e): failures.append("\(u.lastPathComponent): \(e.message)")
+                }
+                step(i + 1)
+            }
+        }
+        step(0)
+    }
+
+    static func convert(_ url: URL, completion: @escaping (Result<URL, ConvertError>) -> Void) {
+        let ext = url.pathExtension.lowercased()
+        let out = uniqueURL(base: url.deletingPathExtension().lastPathComponent, in: outputDir(for: url))
+
+        let office = officeOnlyExts.union(["docx", "doc", "odt", "rtf"])
+        if office.contains(ext), let soffice = sofficePath {
+            runLibreOffice(soffice, input: url, output: out) { result in
+                if case .failure = result, !officeOnlyExts.contains(ext) {
+                    // LibreOffice failed; try the built-in converter instead.
+                    let problem = nativeConvert(url, ext: ext, to: out)
+                    if let problem = problem {
+                        completion(.failure(ConvertError(message: problem)))
+                    } else {
+                        completion(.success(out))
+                    }
+                } else {
+                    completion(result)
+                }
+            }
+            return
+        }
+        if officeOnlyExts.contains(ext) {
+            completion(.failure(ConvertError(message: "needs LibreOffice (brew install --cask libreoffice)")))
+            return
+        }
+        if let problem = nativeConvert(url, ext: ext, to: out) {
+            completion(.failure(ConvertError(message: problem)))
+        } else {
+            completion(.success(out))
+        }
+    }
+
+    /// Returns nil on success, or an error message. Must run on the main thread.
+    private static func nativeConvert(_ url: URL, ext: String, to out: URL) -> String? {
+        if imageExts.contains(ext) {
+            guard let img = NSImage(contentsOf: url), let page = PDFPage(image: img) else {
+                return "couldn't read the image"
+            }
+            let doc = PDFDocument()
+            doc.insert(page, at: 0)
+            return doc.write(to: out) ? nil : "couldn't save the PDF"
+        }
+        let attr: NSAttributedString? = textExts.contains(ext) ? plainAttributed(url) : richAttributed(url, ext)
+        guard let a = attr, a.length > 0 else { return "couldn't read this file" }
+        return render(a, to: out) ? nil : "couldn't create the PDF"
+    }
+
+    private static func plainAttributed(_ url: URL) -> NSAttributedString? {
+        let text = (try? String(contentsOf: url, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+        guard let t = text, !t.isEmpty else { return nil }
+        let font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        return NSAttributedString(string: t, attributes: [.font: font, .foregroundColor: NSColor.black])
+    }
+
+    private static func richAttributed(_ url: URL, _ ext: String) -> NSAttributedString? {
+        let type: NSAttributedString.DocumentType
+        switch ext {
+        case "docx": type = .officeOpenXML
+        case "doc": type = .docFormat
+        case "rtf": type = .rtf
+        case "rtfd": type = .rtfd
+        case "odt": type = .openDocument
+        case "html", "htm": type = .html
+        default: return nil
+        }
+        var opts: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: type]
+        if type == .html { opts[.characterEncoding] = String.Encoding.utf8.rawValue }
+        return try? NSAttributedString(url: url, options: opts, documentAttributes: nil)
+    }
+
+    /// Lays the text out on US Letter pages and saves it as a paginated PDF.
+    private static func render(_ attr: NSAttributedString, to out: URL) -> Bool {
+        let pageW: CGFloat = 612
+        let pageH: CGFloat = 792
+        let margin: CGFloat = 54
+        let textW = pageW - margin * 2
+
+        let info = NSPrintInfo()
+        info.paperSize = NSSize(width: pageW, height: pageH)
+        info.topMargin = margin
+        info.bottomMargin = margin
+        info.leftMargin = margin
+        info.rightMargin = margin
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        info.isHorizontallyCentered = false
+        info.isVerticallyCentered = false
+        info.jobDisposition = .save
+        info.dictionary().setObject(out, forKey: NSPrintInfo.AttributeKey.jobSavingURL.rawValue as NSString)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: textW, height: 100))
+        tv.isEditable = false
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.textContainerInset = .zero
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.containerSize = NSSize(width: textW, height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
+        tv.appearance = NSAppearance(named: .aqua)   // keep text dark even in dark mode
+        tv.drawsBackground = true
+        tv.backgroundColor = .white
+        tv.textStorage?.setAttributedString(attr)
+        if let lm = tv.layoutManager, let tc = tv.textContainer {
+            lm.ensureLayout(for: tc)
+            let h = lm.usedRect(for: tc).height
+            tv.frame = NSRect(x: 0, y: 0, width: textW, height: max(h, 100))
+        }
+
+        let op = NSPrintOperation(view: tv, printInfo: info)
+        op.showsPrintPanel = false
+        op.showsProgressPanel = false
+        let ok = op.run()
+        return ok && FileManager.default.fileExists(atPath: out.path)
+    }
+
+    private static func runLibreOffice(_ soffice: String, input: URL, output: URL,
+                                       completion: @escaping (Result<URL, ConvertError>) -> Void) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notch-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        } catch {
+            completion(.failure(ConvertError(message: "couldn't create a temp folder")))
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: soffice)
+            p.arguments = ["--headless", "--convert-to", "pdf", "--outdir", tmp.path, input.path]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            let launched: Bool
+            do {
+                try p.run()
+                p.waitUntilExit()
+                launched = true
+            } catch {
+                launched = false
+            }
+            let produced = tmp.appendingPathComponent(input.deletingPathExtension().lastPathComponent + ".pdf")
+            DispatchQueue.main.async {
+                defer { try? FileManager.default.removeItem(at: tmp) }
+                if launched, FileManager.default.fileExists(atPath: produced.path) {
+                    do {
+                        try FileManager.default.moveItem(at: produced, to: output)
+                        completion(.success(output))
+                    } catch {
+                        completion(.failure(ConvertError(message: "couldn't save the PDF")))
+                    }
+                } else {
+                    completion(.failure(ConvertError(message: "LibreOffice couldn't convert it")))
+                }
+            }
+        }
+    }
+
+    // MARK: Merge
+
+    static func merge(_ urls: [URL], to out: URL) -> Result<Int, ConvertError> {
+        let merged = PDFDocument()
+        for u in urls {
+            guard let d = PDFDocument(url: u) else {
+                return .failure(ConvertError(message: "couldn't open \(u.lastPathComponent)"))
+            }
+            if d.isLocked {
+                return .failure(ConvertError(message: "\(u.lastPathComponent) is password-protected"))
+            }
+            let pages = (0..<d.pageCount).compactMap { d.page(at: $0) }
+            for page in pages {
+                let copy = (page.copy() as? PDFPage) ?? page
+                merged.insert(copy, at: merged.pageCount)
+            }
+        }
+        guard merged.pageCount > 0, merged.write(to: out) else {
+            return .failure(ConvertError(message: "couldn't save the merged PDF"))
+        }
+        return .success(merged.pageCount)
     }
 }
 
